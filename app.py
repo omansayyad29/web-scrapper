@@ -10,7 +10,7 @@ import re
 # Function to scrape and save content to DOCX
 def scrape_and_save_to_docx(url):
     # Add a delay between requests (e.g., 5 seconds)
-    time.sleep(5)
+    time.sleep(3)
 
     # Proxies (you can replace the IP with your actual proxy)
     proxies = {
@@ -32,7 +32,7 @@ def scrape_and_save_to_docx(url):
         return None
     
     # Parse the webpage content using BeautifulSoup
-    soup = BeautifulSoup(response.content, 'html.parser')
+    soup = BeautifulSoup(response.content, 'lxml')
     doc = Document()
 
     # Extract the domain name or main part of the URL for the heading
