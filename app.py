@@ -3,98 +3,69 @@ from bs4 import BeautifulSoup
 from docx import Document
 from io import BytesIO
 import streamlit as st
-import time
 from urllib.parse import urlparse
 import re
 
-# Function to scrape and save content to DOCX
+# Optimized function to scrape and save content to DOCX
 def scrape_and_save_to_docx(url):
-    # Add a delay between requests (e.g., 5 seconds)
-    time.sleep(3)
-
-    # Proxies (you can replace the IP with your actual proxy)
-    proxies = {
-        "http": "http://122.160.30.99:80",
-        # "https": "https://your_proxy_ip:port",
-    }
-
-    # Headers to mimic a browser request
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:102.0) Gecko/20100101 Firefox/102.0"
-    }
-
-    # Fetch the webpage with the provided proxy and headers
-    response = requests.get(url, headers=headers, proxies=proxies)
-
-    # Check for response success
-    if response.status_code != 200:
-        st.error(f"Failed to retrieve the webpage. Status code: {response.status_code}")
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:102.0) Gecko/20100101 Firefox/102.0"}
+    try:
+        response = requests.get(url, headers=headers, timeout=5)
+        response.raise_for_status()  # Raise an exception for unsuccessful requests
+    except requests.exceptions.RequestException as e:
+        if response.status_code == 403:
+            st.error(f"Error: Access denied for URL (403 Forbidden).")
+        elif response.status_code == 429:
+            st.error(f"Error: Too many requests sent too quickly (429 Too Many Requests).")
+        else:
+            st.error(f"Error fetching webpage: {e}")
         return None
-    
-    # Parse the webpage content using BeautifulSoup
-    soup = BeautifulSoup(response.content, 'lxml')
+
+    # Parse the webpage content
+    soup = BeautifulSoup(response.content, 'html.parser')  # Switched to 'html.parser' for speed (over lxml)
     doc = Document()
 
-    # Extract the domain name or main part of the URL for the heading
-    parsed_url = urlparse(url)
-    domain = parsed_url.netloc if parsed_url.netloc else url
-
-    # Clean up the domain name to create a valid filename (removes special characters)
+    # Extract and clean domain name for DOCX heading and file naming
+    domain = urlparse(url).netloc or url
     valid_filename = re.sub(r'[^a-zA-Z0-9_-]', '_', domain)
 
-    # Add a custom heading to the DOCX document with the domain
     doc.add_heading(f'Content from {domain}', level=1)
 
-    # Function to add different content types (headings, paragraphs, lists, etc.) to the DOCX document
-    def add_content_to_docx(tag, doc):
-        if tag.name in ['h1', 'h2', 'h3', 'h4']:
-            level = int(tag.name[-1])
-            doc.add_heading(tag.get_text(strip=True), level=level)
-        elif tag.name == 'p':
-            doc.add_paragraph(tag.get_text(strip=True))
-        elif tag.name == 'ul':
-            for li in tag.find_all('li'):
-                doc.add_paragraph(f"• {li.get_text(strip=True)}", style='List Bullet')
-        elif tag.name == 'ol':
-            for i, li in enumerate(tag.find_all('li'), start=1):
-                doc.add_paragraph(f"{i}. {li.get_text(strip=True)}", style='List Number')
-        elif tag.name == 'img':
-            doc.add_paragraph("[Image Placeholder: " + tag.get('src', 'Image URL') + "]")
-        elif tag.name == 'audio':
-            doc.add_paragraph("[Audio Placeholder: " + tag.get('src', 'Audio URL') + "]")
-        elif tag.name == 'video':
-            doc.add_paragraph("[Video Placeholder: " + tag.get('src', 'Video URL') + "]")
+    # Direct tag handlers mapped to respective functions for speed
+    def handle_tag(tag):
+        tag_map = {
+            'h1': lambda t: doc.add_heading(t.get_text(strip=True), level=1),
+            'h2': lambda t: doc.add_heading(t.get_text(strip=True), level=2),
+            'h3': lambda t: doc.add_heading(t.get_text(strip=True), level=3),
+            'h4': lambda t: doc.add_heading(t.get_text(strip=True), level=4),
+            'p': lambda t: doc.add_paragraph(t.get_text(strip=True)),
+            'ul': lambda t: [doc.add_paragraph(f"• {li.get_text(strip=True)}", style='List Bullet') for li in t.find_all('li')],
+            'ol': lambda t: [doc.add_paragraph(f"{i+1}. {li.get_text(strip=True)}", style='List Number') for i, li in enumerate(t.find_all('li'))],
+            'img': lambda t: doc.add_paragraph(f"[Image Placeholder: {t.get('src', 'Image URL')}]"),
+            'audio': lambda t: doc.add_paragraph(f"[Audio Placeholder: {t.get('src', 'Audio URL')}]"),
+            'video': lambda t: doc.add_paragraph(f"[Video Placeholder: {t.get('src', 'Video URL')}]")
+        }
+        if tag.name in tag_map:
+            tag_map[tag.name](tag)
 
-    # Scraping the relevant sections (header, body, footer) and extracting the desired tags
-    sections = ['header', 'body', 'footer']
-    for section in sections:
-        section_tag = soup.find(section)
-        if section_tag:
-            for tag in section_tag.find_all(['h1', 'h2', 'h3', 'h4', 'p', 'ul', 'ol', 'img', 'audio', 'video']):
-                add_content_to_docx(tag, doc)
-    
-    # Save the DOCX to a BytesIO object (avoids saving to a physical file)
+    # Efficiently search and handle tags within the <body> for faster processing
+    for tag in soup.body.find_all(['h1', 'h2', 'h3', 'h4', 'p', 'ul', 'ol', 'img', 'audio', 'video']):
+        handle_tag(tag)
+
+    # Save to DOCX in memory (BytesIO)
     doc_io = BytesIO()
     doc.save(doc_io)
     doc_io.seek(0)
 
-    # Save the DOCX file with the domain in its name
-    file_name = f"{valid_filename}.docx"
-    
-    return doc_io, file_name
+    return doc_io, f"{valid_filename}.docx"
 
 # Function to display DOCX content on the screen
 def display_docx_content(docx_io):
     document = Document(docx_io)
-    content = ""
-    
-    for para in document.paragraphs:
-        content += para.text + "\n"
-    
-    return content
+    return "\n".join([para.text for para in document.paragraphs])
 
 # Streamlit app
-st.title("Web Scraper to DOCX")
+st.title("Rapid Web Scraper to DOCX")
 
 # Input for URL
 url = st.text_input("Enter the URL of the webpage to scrape")
@@ -106,14 +77,13 @@ if st.button("Generate and View DOCX"):
             docx_io, file_name = scrape_and_save_to_docx(url)
             
             if docx_io:
-                # Display success message
                 st.success(f"DOCX file '{file_name}' generated successfully!")
 
                 # Display the DOCX content on the screen
                 docx_content = display_docx_content(docx_io)
                 st.text_area("DOCX Content", docx_content, height=300)
-                
-                # Allow user to download DOCX
+
+                # Download button for the DOCX file
                 st.download_button(
                     label="Download DOCX",
                     data=docx_io,
