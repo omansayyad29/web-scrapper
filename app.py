@@ -39,7 +39,6 @@ def scrape_and_save_to_docx(url):
             'h3': lambda t: doc.add_heading(t.get_text(strip=True), level=3),
             'h4': lambda t: doc.add_heading(t.get_text(strip=True), level=4),
             'p': lambda t: doc.add_paragraph(t.get_text(strip=True)),
-            'div': lambda t: doc.add_paragraph(t.get_text(strip=True)),
             'ul': lambda t: [doc.add_paragraph(f"• {li.get_text(strip=True)}", style='List Bullet') for li in t.find_all('li')],
             'ol': lambda t: [doc.add_paragraph(f"{i+1}. {li.get_text(strip=True)}", style='List Number') for i, li in enumerate(t.find_all('li'))],
             'img': lambda t: doc.add_paragraph(f"[Image Placeholder: {t.get('src', 'Image URL')}]"),
@@ -50,7 +49,7 @@ def scrape_and_save_to_docx(url):
             tag_map[tag.name](tag)
 
     # Efficiently search and handle tags within the <body> for faster processing
-    for tag in soup.body.find_all(['h1', 'h2', 'h3', 'h4', 'p', 'ul', 'ol', 'img', 'audio', 'video','div']):
+    for tag in soup.body.find_all(['h1', 'h2', 'h3', 'h4', 'p', 'ul', 'ol', 'img', 'audio', 'video']):
         handle_tag(tag)
 
     # Save to DOCX in memory (BytesIO)
